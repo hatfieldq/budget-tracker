@@ -1,0 +1,68 @@
+// Thin wrapper around fetch for the local API. Every call goes to /api on the
+// same origin; in dev, Vite proxies that to the server on 127.0.0.1:4317.
+import type {
+  Account,
+  AccountInput,
+  AccountUpdate,
+  Category,
+  CategoryInput,
+  Person,
+  Scope,
+  Txn,
+  TxnFilters,
+  TxnInput,
+  TxnPage,
+} from '@ledger/shared';
+import { scopeToParam } from '@ledger/shared';
+
+async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? `${method} ${url} failed (${res.status})`);
+  return data as T;
+}
+
+export const api = {
+  people: () => request<Person[]>('GET', '/api/people'),
+  renamePerson: (id: number, displayName: string) =>
+    request<Person>('PATCH', `/api/people/${id}`, { displayName }),
+
+  categories: () => request<Category[]>('GET', '/api/categories'),
+  createCategory: (input: CategoryInput) => request<Category>('POST', '/api/categories', input),
+  updateCategory: (id: number, patch: Partial<CategoryInput>) =>
+    request<Category>('PATCH', `/api/categories/${id}`, patch),
+  archiveCategory: (id: number, archived: boolean) =>
+    request<Category>('POST', `/api/categories/${id}/${archived ? 'archive' : 'unarchive'}`),
+
+  accounts: (scope: Scope, includeArchived = false) =>
+    request<Account[]>(
+      'GET',
+      `/api/accounts?scope=${scopeToParam(scope)}${includeArchived ? '&includeArchived=1' : ''}`,
+    ),
+  createAccount: (input: AccountInput) => request<Account>('POST', '/api/accounts', input),
+  updateAccount: (id: number, patch: AccountUpdate) =>
+    request<Account>('PATCH', `/api/accounts/${id}`, patch),
+  archiveAccount: (id: number, archived: boolean) =>
+    request<Account>('POST', `/api/accounts/${id}/${archived ? 'archive' : 'unarchive'}`),
+
+  txns: (filters: TxnFilters) => request<TxnPage>('GET', `/api/txns?${txnQuery(filters)}`),
+  createTxn: (input: TxnInput) => request<Txn>('POST', '/api/txns', input),
+  updateTxn: (id: number, input: TxnInput) => request<Txn>('PUT', `/api/txns/${id}`, input),
+  deleteTxn: (id: number) => request<void>('DELETE', `/api/txns/${id}`),
+};
+
+/** TxnFilters -> query string, skipping empty values. */
+export function txnQuery(f: TxnFilters): string {
+  const params = new URLSearchParams();
+  if (f.scope) params.set('scope', scopeToParam(f.scope));
+  for (const key of ['accountId', 'categoryId', 'from', 'to', 'q', 'status', 'createdBy', 'limit', 'offset'] as const) {
+    const v = f[key];
+    if (v !== undefined && v !== '') params.set(key, String(v));
+  }
+  if (f.uncategorized) params.set('uncategorized', '1');
+  return params.toString();
+}

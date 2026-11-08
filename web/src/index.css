@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* Right-align and use tabular digits for every money column. */
+.money {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}

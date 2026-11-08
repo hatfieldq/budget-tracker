@@ -1,0 +1,32 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+coverage/
+
+# Environment
+.env
+.env.*
+
+# Local-only planning docs (never committed, by request)
+PLAN.md
+CLAUDE.md
+
+# Databases: real financial data must never be committed
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+backups/
+exports/
+
+# Editor / OS
+.DS_Store
+*.log
