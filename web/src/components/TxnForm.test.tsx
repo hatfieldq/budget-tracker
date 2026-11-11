@@ -179,4 +179,28 @@ describe('TxnForm', () => {
     setup({ template: t, entryDate: '2026-10-28' });
     expect(screen.getByLabelText('Date')).toHaveProperty('value', '2026-10-28');
   });
+
+  it('a known payee fills in its last category and direction, without overriding a choice', async () => {
+    const payees = [
+      { payee: 'Green Basket', lastDate: '2026-03-08', categoryId: 12 },
+      { payee: 'Acme Payroll', lastDate: '2026-03-01', categoryId: 10 },
+      { payee: 'Big Box', lastDate: '2026-03-05', categoryId: null },
+    ];
+    const onSubmit = setup({ payees });
+    // Suggestions are offered from the list.
+    expect(document.querySelectorAll('datalist option')).toHaveLength(3);
+    change('Payee', 'green basket');
+    expect(screen.getByLabelText('Category')).toHaveProperty('value', '12');
+    change('Category', '');
+    change('Payee', 'Acme Payroll');
+    expect(screen.getByLabelText('Category')).toHaveProperty('value', '10');
+    expect(screen.getByText('Money in').getAttribute('aria-pressed')).toBe('true');
+    // Already chosen: a different known payee doesn't change it.
+    change('Payee', 'Green Basket');
+    expect(screen.getByLabelText('Category')).toHaveProperty('value', '10');
+    change('Amount', '10');
+    fireEvent.click(screen.getByText('Add transaction'));
+    const [input] = await submitted(onSubmit);
+    expect(input.postings).toContainEqual({ accountId: null, categoryId: 10, amountCents: -1000 });
+  });
 });

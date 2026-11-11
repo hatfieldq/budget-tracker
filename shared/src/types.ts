@@ -257,3 +257,45 @@ export interface SnapshotInput {
   note?: string | null;
   createdByPersonId: number;
 }
+
+// ---------- Today (Session 6) ----------
+
+/** Investment types checked for stale values on Today. */
+export const INVESTMENT_TYPES_FOR_TODAY: readonly AccountType[] = ['brokerage', 'retirement'];
+
+export interface TodaySummary {
+  today: string;
+  review: {
+    accountId: number;
+    name: string;
+    type: AccountType;
+    unclearedCount: number;
+    clearedCount: number;
+    lastReconciledDate: string | null;
+  }[];
+  /** Every active investment account, most out of date first; `stale` = more than 7 days (AT-16). */
+  stale: {
+    accountId: number;
+    name: string;
+    lastValueDate: string | null;
+    /** lastValueDate, or the opening date when there's no value update yet. */
+    basisDate: string;
+    days: number;
+    stale: boolean;
+  }[];
+  uncategorized: { total: number; txns: Txn[] };
+  budget: {
+    month: string;
+    hasBudget: boolean;
+    budgetedCents: number;
+    spentBudgetedCents: number;
+    overCategories: string[];
+  };
+}
+
+/** Quick-entry hint: a payee used before and the category used last time (if a single one). */
+export interface PayeeHint {
+  payee: string;
+  lastDate: string;
+  categoryId: number | null;
+}

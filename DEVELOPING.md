@@ -24,6 +24,40 @@ If you think you'll want a library you don't have yet, install it before you fly
 
 ---
 
+## 1b. Using it: the weekly routine
+
+Start the app with `npm run dev` and open http://127.0.0.1:5173 (it opens on **Today**).
+
+**First time only**
+1. **Accounts → Add account** for each real account: name, type (Savings for a
+   high-yield savings account, Retirement → Roth 401(k) etc.), owners (both of
+   you = joint), opening date = the day you start tracking, opening balance =
+   the balance at the end of the day before. Cards and loans: enter the amount owed.
+2. **Categories**: rename/add/archive until the list matches how you think about money.
+3. **Budget**: type this month's amount next to each category you want to watch.
+
+**Every week (about 15 minutes)**
+1. **Today → enter the week's transactions** from receipts or your bank/card sites.
+   Set the date once; it stays for the next entries. Known payees fill in their
+   category. Use *Transfer* for card payments and moves to savings, *Split* for
+   paychecks and loan payments. Or **Duplicate** last paycheck on Transactions.
+2. **To review → click each account's name**, compare with the bank's website,
+   and click **C** on every item the bank shows (cleared).
+3. **Uncategorized card → Categorize** anything left there.
+4. **Investment values card → Update value** for any account flagged (older than 7 days).
+5. **Budget** tab: check the month. Red = over, green = under.
+6. `npm run backup`.
+
+**Every month (when statements arrive)**
+1. **Reconcile** each bank, card and loan account: statement date + ending balance,
+   tick items until the difference is $0.00, **Finish**.
+2. Checking/savings: **Update balance** books any interest the bank paid.
+3. **Budget → next month → Copy last month's budget**, then adjust.
+4. **Overview → Last month**: income, taxes, spending, savings, net worth.
+5. Optional: `npm run export` for a spreadsheet copy.
+
+---
+
 ## 2. Everyday commands
 
 | Command | What it does |
@@ -37,6 +71,7 @@ If you think you'll want a library you don't have yet, install it before you fly
 | `npm run seed` | Fill an empty DB with fabricated demo accounts. |
 | `npm run seed -- --force` | Back up, wipe, re-seed. |
 | `npm run backup` | Copy DB to `backups/finance-YYYYMMDD-HHMMSS.sqlite`. |
+| `npm run export` | `exports/<timestamp>/`: a CSV per table, `transactions.csv` (readable, dollars), and a DB copy. Opens in any spreadsheet. |
 | `npm run restore` | List backups. `npm run restore -- backups/<file>` restores (stop the server first). |
 | `npm run sql -- tables` | List DB tables. |
 | `npm run sql -- "SELECT * FROM account"` | Run any read-only query and print a table. |
@@ -124,7 +159,7 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | File | Purpose |
 |---|---|
 | `src/index.ts` | Starts the server on 127.0.0.1 and closes the DB cleanly on Ctrl+C. |
-| `src/config.ts` | Paths (DB, backups, exports) and port. `HOST` is hard-coded to loopback on purpose. |
+| `src/config.ts` | Paths (DB, backups, exports) and port. `HOST` is hard-coded to loopback on purpose. A relative `LEDGER_DB` is resolved from where you typed the command. |
 | `src/app.ts` | Builds the Fastify app: error handler + registers route files. Tests use this directly. |
 | `src/errors.ts` | `ValidationError` (→ HTTP 400) and `NotFoundError` (→ 404). Throw these from services. |
 | `src/dates.ts` | `localToday()` and `isValidDate()` for `YYYY-MM-DD` strings. |
@@ -143,15 +178,18 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | `src/services/snapshots.ts` | Investment value snapshots and **`recomputeValuations`**, which rebuilds the system "Valuation change" txns. Called by ledger/accounts writes that touch an investment account. |
 | `src/services/reports.ts` | **Report engine** (PLAN §3): `categoryTotals` (category postings in eligible txns), `spendingByCategory` (budgets), `overviewReport` (everything on Overview, incl. the net-worth identity check), `scopeInfo`. |
 | `src/services/budgets.ts` | Monthly budgets: `getBudgetMonth` (budget + spent per category), `setBudget`, `copyPreviousMonth`. |
+| `src/services/today.ts` | `todaySummary` (Today cards; `STALE_AFTER_DAYS = 7`) and `listPayees` (payee → last category). |
 | `src/services/scope.ts` | Parses `?scope=household` / `person:1` and turns it into "which accounts". |
 | `src/routes/*.ts` | One file per resource; each just maps a URL to a service function. |
 | `src/ops/backup.ts` | Backup / restore logic (tested). |
-| `scripts/*.ts` | Command-line wrappers: `seed`, `backup`, `restore`, `sql`. |
+| `src/ops/export.ts` | CSV export (`exportDb`, `toCsv`, `centsToDecimal`). |
+| `scripts/*.ts` | Command-line wrappers: `seed`, `backup`, `restore`, `export`, `sql`. |
 | `test/helpers.ts` | `testDb()` (fresh in-memory DB), `accountInput()`, `unbalancedTxnIds()`, `acct()`/`cat()` posting shorthands, `balance()`, `categoryTotal()`, `categoryId()`. |
 | `test/ledger.test.ts` | Ledger rules: AT-1–4, 9, 10, 12, 13, 18, 20 and register filters. |
 | `test/reconcile.test.ts` | Cleared toggle, AT-13 (lock via real reconcile), AT-14, AT-21 (ledger part), API. |
 | `test/snapshots.test.ts` | AT-6 valuation rules, snapshot validation, seed invariant, API. |
 | `test/reports.test.ts` | Report rules: AT-1–8, 11, 17, 20, 21 (report side), Uncategorized by sign, period edges, archived accounts, API. |
+| `test/today.test.ts` | AT-16 stale values, review counts, uncategorized + budget glance per scope, payee hints, API. |
 | `test/budgets.test.ts` | AT-22: spending per category (what counts and what doesn't), scope, budget set/clear/validation, copy last month, seed, API. |
 | `test/migrations.test.ts` | Migration 002 on a v1 DB; pre-migrate backup. |
 | `test/*.test.ts` | Tests. `api.test.ts` uses `app.inject()` to call routes without a real port. |
@@ -184,11 +222,13 @@ so it either fully happens or doesn't.
 | `src/components/BalanceUpdatePanel.tsx` | "Update balance" for checking/savings: compare statement vs. app, book interest. |
 | `src/components/*.test.tsx` | Component tests; `ReconcileBar` and `BalanceUpdatePanel` mock `../api` with `vi.mock`. |
 | `src/pages/TransactionsPage.tsx` | Register: filters (URL params `accountId`, `categoryId`, `from`, `to`, `uncategorized`, `reconcile`), table rows (`TxnRow`), edit/duplicate/delete. |
+| `src/pages/TodayPage.tsx` | **Default page.** Quick entry + cards: month budget, review status, stale investment values, uncategorized. Test: `TodayPage.test.tsx`. |
+| `src/entryDate.ts` | `useEntryDate()`: the sticky entry date shared by Today and Transactions. |
+| `src/payees.ts` | `usePayees()`: payee hints for the entry form. |
 | `src/pages/OverviewPage.tsx` | Overview: period presets, totals, income/tax/spending breakdowns, net worth by group with valuation dates, change-in-net-worth check. Test: `OverviewPage.test.tsx`. |
 | `src/pages/BudgetPage.tsx` | Budget tab: month picker, inline budget inputs, spent vs. budget (red over / green under), copy last month. Test: `BudgetPage.test.tsx`. |
 | `src/pages/CategoriesPage.tsx` | Add/rename/archive categories. |
 | `src/pages/PeoplePage.tsx` | Rename people. |
-| `src/pages/Placeholder.tsx` | Stand-in for screens not built yet. |
 
 Styling is Tailwind utility classes directly in JSX (`className="rounded px-3"`).
 No component library; copy patterns from existing pages.

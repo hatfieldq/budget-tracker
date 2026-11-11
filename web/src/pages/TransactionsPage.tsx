@@ -21,9 +21,10 @@ import { useScope } from '../scope';
 import { TxnForm, today } from '../components/TxnForm';
 import { ReconcileBar, type StatementFields } from '../components/ReconcileBar';
 import { href } from '../router';
+import { useEntryDate } from '../entryDate';
+import { usePayees } from '../payees';
 
 const PAGE_SIZE = 100;
-const DATE_KEY = 'ledger.entryDate';
 const statementKey = (accountId: number) => `ledger.reconcile.${accountId}`;
 
 function loadStatement(accountId: number | undefined): StatementFields {
@@ -48,14 +49,6 @@ function saveStatement(accountId: number, s: StatementFields | null) {
 /** Edit or Duplicate temporarily replaces the entry form; null = entry form. */
 type FormState = { kind: 'edit'; txn: Txn } | { kind: 'duplicate'; txn: Txn } | null;
 
-function loadEntryDate(): string {
-  try {
-    return sessionStorage.getItem(DATE_KEY) ?? today();
-  } catch {
-    return today();
-  }
-}
-
 export function TransactionsPage({ params }: { params: URLSearchParams }) {
   const { scope, actingPersonId, personName, people } = useScope();
   const lookups = useLookups();
@@ -71,15 +64,8 @@ export function TransactionsPage({ params }: { params: URLSearchParams }) {
   const [txns, setTxns] = useState<Txn[]>([]);
   const [total, setTotal] = useState(0);
   const [form, setForm] = useState<FormState>(null);
-  const [entryDate, setEntryDate] = useState(loadEntryDate);
-  const rememberDate = (d: string) => {
-    setEntryDate(d);
-    try {
-      sessionStorage.setItem(DATE_KEY, d);
-    } catch {
-      /* storage unavailable: keep it in memory only */
-    }
-  };
+  const [entryDate, rememberDate] = useEntryDate();
+  const { payees, reload: reloadPayees } = usePayees();
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,6 +116,7 @@ export function TransactionsPage({ params }: { params: URLSearchParams }) {
   async function save(input: TxnInput, id?: number) {
     if (id) await api.updateTxn(id, input);
     else await api.createTxn(input);
+    reloadPayees();
     if (id || form) setForm(null);
     await load(0);
     setSummaryVersion((v) => v + 1);
@@ -212,6 +199,7 @@ export function TransactionsPage({ params }: { params: URLSearchParams }) {
           defaultAccountId={filters.accountId}
           entryDate={entryDate}
           onDateChange={rememberDate}
+          payees={payees}
           onSubmit={save}
           onCancel={form ? () => setForm(null) : undefined}
         />

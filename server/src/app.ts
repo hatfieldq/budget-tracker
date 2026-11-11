@@ -8,6 +8,7 @@ import { registerTxnRoutes } from './routes/txns';
 import { registerReconcileRoutes } from './routes/reconcile';
 import { registerBudgetRoutes } from './routes/budgets';
 import { registerReportRoutes } from './routes/reports';
+import { registerTodayRoutes } from './routes/today';
 
 /** Build the HTTP app around an open DB. Tests call this with an in-memory DB. */
 export function buildApp(db: DB) {
@@ -32,6 +33,7 @@ export function buildApp(db: DB) {
   registerReconcileRoutes(app, db);
   registerBudgetRoutes(app, db);
   registerReportRoutes(app, db);
+  registerTodayRoutes(app, db);
   return app;
 }
 

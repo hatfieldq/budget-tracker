@@ -6,7 +6,7 @@
 // helpers in @ledger/shared/entry.ts turn that into signed ledger postings.
 // For new entries the form stays open after saving: it clears payee, memo,
 // amounts and category but keeps the date, mode and accounts for the next one.
-import { useRef, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import {
   ACCOUNT_TYPES,
   ACCOUNT_TYPE_LABELS,
@@ -17,6 +17,7 @@ import {
   parseMoney,
   txnToEntry,
   type Entry,
+  type PayeeHint,
   type SplitLine,
   type Txn,
   type TxnInput,
@@ -46,6 +47,8 @@ interface Props {
   onSubmit: (input: TxnInput, id?: number) => Promise<void>;
   /** Omitted for the always-open entry form, which shows "Clear" instead. */
   onCancel?: () => void;
+  /** Payees used before: suggested while typing; a match fills in its last category. */
+  payees?: PayeeHint[];
 }
 
 export const today = () => new Date().toLocaleDateString('en-CA');
@@ -64,7 +67,8 @@ function parseTarget(key: string): SplitLine['target'] | null {
 }
 
 export function TxnForm(props: Props) {
-  const { lookups, actingPersonId, editing, template, defaultAccountId, entryDate, onDateChange, onSubmit, onCancel } = props;
+  const { lookups, actingPersonId, editing, template, defaultAccountId, entryDate, onDateChange, onSubmit, onCancel, payees = [] } = props;
+  const payeeListId = useId();
   const source = editing ?? template;
   const initial = source ? txnToEntry(source) : null;
   const firstAccount = defaultAccountId ?? lookups.accounts.find((a) => !a.archivedAt)?.id ?? 0;
@@ -107,6 +111,23 @@ export function TxnForm(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [added, setAdded] = useState<string | null>(null);
+
+  /**
+   * Typing a known payee (exact, case-insensitive) in Spend/Receive with no
+   * category chosen yet fills in the category used last time, and the matching
+   * direction (income -> Money in, expense -> Money out). Never overrides a choice.
+   */
+  function changePayee(value: string) {
+    setPayee(value);
+    setAdded(null);
+    if (mode !== 'simple' || editing || categoryId !== '') return;
+    const hint = payees.find((p) => p.payee.toLowerCase() === value.trim().toLowerCase());
+    const category = hint?.categoryId ? lookups.categories.find((c) => c.id === hint.categoryId) : undefined;
+    if (!category || category.archivedAt || category.kind === 'uncategorized') return;
+    setCategoryId(String(category.id));
+    if (category.kind === 'income') setDirection('in');
+    else if (category.kind === 'expense') setDirection('out');
+  }
 
   /** Clear what changes per transaction; keep date, mode, direction and accounts. */
   function clearForNext() {
@@ -268,7 +289,12 @@ export function TxnForm(props: Props) {
         </div>
         <label className="block text-sm">
           Payee
-          <input ref={payeeRef} className={`${input} w-full`} value={payee} onChange={(e) => { setPayee(e.target.value); setAdded(null); }} />
+          <input ref={payeeRef} className={`${input} w-full`} list={payeeListId} autoComplete="off" value={payee} onChange={(e) => changePayee(e.target.value)} />
+          <datalist id={payeeListId}>
+            {payees.map((p) => (
+              <option key={p.payee} value={p.payee} />
+            ))}
+          </datalist>
         </label>
         <label className="block text-sm">
           Memo

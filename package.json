@@ -14,6 +14,7 @@
     "build": "npm run build -w web",
     "seed": "npm run seed -w server --",
     "backup": "npm run backup -w server --",
+    "export": "npm run export -w server --",
     "restore": "npm run restore -w server --",
     "sql": "npm run sql -w server --"
   },

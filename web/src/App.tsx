@@ -6,7 +6,7 @@ import { BudgetPage } from './pages/BudgetPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { PeoplePage } from './pages/PeoplePage';
-import { Placeholder } from './pages/Placeholder';
+import { TodayPage } from './pages/TodayPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { useRoute } from './router';
 
@@ -22,7 +22,7 @@ const PAGES = [
 
 export function App() {
   const route = useRoute();
-  const path = PAGES.find((p) => p.path === route.path)?.path ?? 'accounts';
+  const path = PAGES.find((p) => p.path === route.path)?.path ?? 'today';
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16">
@@ -44,12 +44,12 @@ export function App() {
       </header>
 
       <main>
-        {path === 'accounts' && <AccountsPage />}
+        {path === 'accounts' && <AccountsPage key={route.params.toString()} params={route.params} />}
         {path === 'transactions' && <TransactionsPage key={route.params.toString()} params={route.params} />}
         {path === 'budget' && <BudgetPage params={route.params} />}
         {path === 'categories' && <CategoriesPage />}
         {path === 'people' && <PeoplePage />}
-        {path === 'today' && <Placeholder title="Today" session={6} />}
+        {path === 'today' && <TodayPage />}
         {path === 'overview' && <OverviewPage params={route.params} />}
       </main>
     </div>

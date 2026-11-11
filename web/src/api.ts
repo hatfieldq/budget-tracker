@@ -8,6 +8,7 @@ import type {
   Category,
   CategoryInput,
   OverviewReport,
+  PayeeHint,
   Person,
   ReconcileInput,
   ReconcileSummary,
@@ -20,6 +21,7 @@ import type {
   TxnFilters,
   TxnInput,
   TxnPage,
+  TodaySummary,
 } from '@ledger/shared';
 import { scopeToParam } from '@ledger/shared';
 
@@ -86,6 +88,9 @@ export const api = {
   setBudget: (month: string, categoryId: number, amountCents: number | null) =>
     request<void>('PUT', `/api/budgets/${month}/${categoryId}`, { amountCents }),
   copyBudget: (month: string) => request<{ copied: number }>('POST', `/api/budgets/${month}/copy-previous`),
+
+  today: (scope: Scope) => request<TodaySummary>('GET', `/api/today?scope=${scopeToParam(scope)}`),
+  payees: () => request<PayeeHint[]>('GET', '/api/payees'),
 
   overview: (scope: Scope, from: string, to: string) =>
     request<OverviewReport>('GET', `/api/reports/overview?scope=${scopeToParam(scope)}&from=${from}&to=${to}`),

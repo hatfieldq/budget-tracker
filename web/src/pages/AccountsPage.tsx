@@ -2,8 +2,9 @@
 // balances in natural terms (cards/loans show the positive amount owed).
 // Row actions: Register; Reconcile (cash, cards, loans: opens the register in
 // reconcile mode); Update balance (checking/savings interest helper); Update
-// value (investment snapshots); Edit; Archive.
-import { useCallback, useEffect, useState } from 'react';
+// value (investment snapshots); Edit; Archive. #/accounts?update=ID opens that
+// account's Update balance / Update value panel (linked from Today).
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ACCOUNT_TYPES,
   ACCOUNT_TYPE_LABELS,
@@ -24,7 +25,7 @@ import { BalanceUpdatePanel } from '../components/BalanceUpdatePanel';
 import { SnapshotPanel } from '../components/SnapshotPanel';
 import { href } from '../router';
 
-export function AccountsPage() {
+export function AccountsPage({ params }: { params?: URLSearchParams }) {
   const { people, scope, actingPersonId, personName } = useScope();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showArchived, setShowArchived] = useState(false);
@@ -44,6 +45,15 @@ export function AccountsPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Open the panel requested by the URL once, when that account has loaded.
+  const requestedUpdate = useRef(params?.get('update') ? Number(params.get('update')) : null);
+  useEffect(() => {
+    const a = accounts.find((x) => x.id === requestedUpdate.current);
+    if (!a) return;
+    requestedUpdate.current = null;
+    setPanel({ kind: isInvestment(a.type) ? 'value' : 'balance', account: a });
+  }, [accounts]);
 
   async function save(input: AccountInput) {
     if (editing === 'new') {
