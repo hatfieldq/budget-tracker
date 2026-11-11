@@ -75,3 +75,35 @@ describe('migration 002 (Roth 401k)', () => {
     expect(a.subtype).toBe('roth_401k');
   });
 });
+
+describe('migration 004 (budget lines for accounts)', () => {
+  it('keeps existing category budgets and allows account budgets afterwards', () => {
+    const file = path.join(dir, 'finance.sqlite');
+    makeVersion1Db(file);
+    // Bring it to version 3 by hand (002 + 003), with a category budget row.
+    const raw = new Database(file);
+    raw.pragma('foreign_keys = OFF'); // as migrate.ts does
+    for (const m of ['002_roth_401k.sql', '003_budgets.sql']) {
+      raw.exec(fs.readFileSync(new URL(`../src/db/migrations/${m}`, import.meta.url), 'utf8'));
+    }
+    raw.pragma('user_version = 3');
+    raw.exec(`INSERT INTO category (id, household_id, name, kind) VALUES (50, 1, 'Groceries', 'expense');
+              INSERT INTO budget (id, household_id, month, category_id, amount_cents) VALUES (9, 1, '2026-03', 50, 30000);`);
+    raw.close();
+
+    const db = openDb(file);
+    expect(db.pragma('user_version', { simple: true })).toBeGreaterThanOrEqual(4);
+    expect(db.prepare('SELECT * FROM budget').all()).toEqual([
+      { id: 9, household_id: 1, month: '2026-03', category_id: 50, account_id: null, group_key: null, amount_cents: 30000 },
+    ]);
+    // Exactly one target per row.
+    expect(() =>
+      db.prepare("INSERT INTO budget (household_id, month, category_id, account_id, amount_cents) VALUES (1, '2026-03', 50, 7, 1)").run(),
+    ).toThrow(/CHECK/);
+    db.prepare("INSERT INTO budget (household_id, month, account_id, amount_cents) VALUES (1, '2026-03', 7, 100)").run();
+    expect(() =>
+      db.prepare("INSERT INTO budget (household_id, month, account_id, amount_cents) VALUES (1, '2026-03', 7, 200)").run(),
+    ).toThrow(/UNIQUE/);
+    db.close();
+  });
+});

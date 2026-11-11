@@ -6,8 +6,8 @@
 import {
   INVESTMENT_TYPES_FOR_TODAY,
   RECONCILABLE_TYPES,
-  budgetStatus,
   budgetTotals,
+  lineStatus,
   type PayeeHint,
   type Scope,
   type TodaySummary,
@@ -68,7 +68,7 @@ export function todaySummary(db: DB, scope: Scope, today: string = localToday())
   const month = today.slice(0, 7);
   const b = getBudgetMonth(db, scope, month);
   const totals = budgetTotals(b.lines);
-  const over = b.lines.filter((l) => budgetStatus(l.budgetCents, l.spentCents) === 'over').map((l) => l.name);
+  const over = b.lines.filter((l) => lineStatus(l) === 'over').map((l) => l.name);
 
   return {
     today,

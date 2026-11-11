@@ -4,11 +4,18 @@ import type { BudgetMonth } from '@ledger/shared';
 import { BudgetPage } from './BudgetPage';
 import { api } from '../api';
 
-vi.mock('../api', () => ({ api: { budgetMonth: vi.fn(), setBudget: vi.fn(), copyBudget: vi.fn() } }));
+vi.mock('../api', () => ({ api: { budgetMonth: vi.fn(), setBudget: vi.fn(), setAccountBudget: vi.fn(), setGroupBudget: vi.fn(), copyBudget: vi.fn() } }));
 vi.mock('../scope', () => ({ useScope: () => ({ scope: { type: 'household' } }) }));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+const cat = (id: number, name: string, budgetCents: number | null, spentCents: number) => ({
+  kind: 'category' as const, categoryId: id, accountId: null, name, archived: false, budgetCents, spentCents,
+});
+const acc = (kind: 'loan' | 'savings', id: number, name: string, budgetCents: number | null, spentCents: number) => ({
+  kind, categoryId: null, accountId: id, name, archived: false, budgetCents, spentCents,
 });
 
 const month = (overrides: Partial<BudgetMonth> = {}): BudgetMonth => ({
@@ -16,10 +23,15 @@ const month = (overrides: Partial<BudgetMonth> = {}): BudgetMonth => ({
   scopeLabel: 'Household',
   includesJointAccounts: false,
   lines: [
-    { categoryId: 1, name: 'Dining', archived: false, budgetCents: 6_000, spentCents: 6_450 },
-    { categoryId: 2, name: 'Groceries', archived: false, budgetCents: 30_000, spentCents: 28_796 },
-    { categoryId: 3, name: 'Housing', archived: false, budgetCents: 185_000, spentCents: 185_000 },
-    { categoryId: 4, name: 'Fees', archived: false, budgetCents: null, spentCents: 1_200 },
+    cat(1, 'Dining', 6_000, 6_450),
+    cat(2, 'Groceries', 30_000, 28_796),
+    cat(3, 'Housing', 185_000, 185_000),
+    cat(4, 'Fees', null, 1_200),
+    { ...cat(5, 'Interest Expense', null, 0), inLoanPaymentsCents: 6_042 },
+    acc('loan', 20, 'Hatchback Loan', 40_000, 38_500),
+    acc('savings', 30, 'Car Fund', 20_000, 15_000),
+    acc('savings', 31, 'Emergency Fund', 10_000, 10_051),
+    { kind: 'investing' as const, categoryId: null, accountId: null, group: 'investing' as const, name: 'All investing', archived: false, budgetCents: 90_000, spentCents: 83_400 },
   ],
   uncategorized: { cents: 2_475, count: 1 },
   previousMonthBudgetCount: 3,
@@ -43,8 +55,8 @@ describe('BudgetPage', () => {
     expect(row('Housing').dataset.status).toBe('under');
     expect(screen.getByText('$0.00 left').className).toContain('text-green-700');
     expect(row('Fees').dataset.status).toBe('none');
-    // Totals over budgeted categories only: 221,000 budgeted vs 220,246 spent.
-    expect(screen.getByText('Left to spend').nextSibling!.textContent).toBe('$7.54');
+    // Totals over budgeted spending + loans: 261,000 budgeted vs 258,746 spent; savings apart.
+    expect(screen.getByText('Left to spend').nextSibling!.textContent).toBe('$22.54');
     expect(screen.getByText(/spent in categories without a budget/).textContent).toContain('$12.00');
     expect(screen.getByText(/uncategorized/).textContent).toContain('$24.75');
     // Spent links to that category's transactions for the month.
@@ -97,5 +109,46 @@ describe('BudgetPage', () => {
     screen.getByText(/Type an amount next to a category/);
     expect(screen.queryByText(/Copy last month/)).toBeNull();
     expect(screen.queryByText('Left to spend')).toBeNull();
+  });
+
+  it('loan rows are limits (whole payment); savings rows are goals; sections are labelled', async () => {
+    vi.mocked(api.setAccountBudget).mockResolvedValue(undefined);
+    await show();
+    screen.getByText('Loan payments');
+    screen.getByText('Savings goals');
+    expect(row('Hatchback Loan').dataset.status).toBe('under');
+    expect(screen.getByText('$15.00 left').className).toContain('text-green-700');
+    expect(row('Car Fund').dataset.status).toBe('short');
+    expect(screen.getByText('$50.00 to go').className).toContain('text-amber-700');
+    expect(row('Emergency Fund').dataset.status).toBe('met');
+    expect(screen.getByText('Goal met').className).toContain('text-green-700');
+    expect(screen.getByText('Saved of $300.00 goal').nextSibling!.textContent).toBe('$250.51');
+    screen.getByText('+$60.42 counted in loan payments');
+    // Paid links to the loan's register for the month.
+    expect(screen.getByText('$385.00').closest('a')!.getAttribute('href')).toBe(
+      '#/transactions?accountId=20&from=2026-03-01&to=2026-03-31',
+    );
+    const loan = screen.getByLabelText('Budget for Hatchback Loan');
+    loan.focus();
+    fireEvent.change(loan, { target: { value: '385' } });
+    fireEvent.keyDown(loan, { key: 'Enter' });
+    await vi.waitFor(() => expect(api.setAccountBudget).toHaveBeenCalledWith('2026-03', 20, 38_500));
+    expect(api.setBudget).not.toHaveBeenCalled();
+  });
+
+  it('All investing is one goal row: amber while short, its own total, saves to the group', async () => {
+    vi.mocked(api.setGroupBudget).mockResolvedValue(undefined);
+    await show();
+    screen.getByText('Investing');
+    expect(row('All investing').dataset.status).toBe('short');
+    expect(screen.getByText('$66.00 to go').className).toContain('text-amber-700');
+    expect(screen.getByText('Invested of $900.00 goal').nextSibling!.textContent).toBe('$834.00');
+    expect(screen.getByText('$834.00', { selector: 'a' }).getAttribute('href')).toBe('#/overview?from=2026-03-01&to=2026-03-31');
+    const goal = screen.getByLabelText('Budget for All investing');
+    goal.focus();
+    fireEvent.change(goal, { target: { value: '800' } });
+    fireEvent.keyDown(goal, { key: 'Enter' });
+    await vi.waitFor(() => expect(api.setGroupBudget).toHaveBeenCalledWith('2026-03', 'investing', 80_000));
+    expect(api.setAccountBudget).not.toHaveBeenCalled();
   });
 });

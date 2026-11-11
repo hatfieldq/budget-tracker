@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMonths, budgetStatus, budgetTotals, isValidMonth, monthBounds } from './budget';
+import { addMonths, budgetStatus, budgetTotals, isValidMonth, lineStatus, monthBounds, savingsStatus } from './budget';
 
 describe('budget helpers', () => {
   it('validates and shifts months across year ends', () => {
@@ -26,15 +26,42 @@ describe('budget helpers', () => {
     expect(budgetStatus(5_000, -3_600)).toBe('under'); // net refund
   });
 
-  it('totals keep unbudgeted spending separate', () => {
-    const line = (budgetCents: number | null, spentCents: number) => ({
-      categoryId: 1, name: 'x', archived: false, budgetCents, spentCents,
+  it('savings is a goal: met at or above, short below', () => {
+    expect(savingsStatus(null, 100)).toBe('none');
+    expect(savingsStatus(20_000, 19_999)).toBe('short');
+    expect(savingsStatus(20_000, 20_000)).toBe('met');
+    expect(savingsStatus(20_000, 20_050)).toBe('met'); // interest on top is fine
+  });
+
+  it('totals: spending (categories + loans) and savings kept apart; unbudgeted = categories only', () => {
+    const line = (kind: 'category' | 'loan' | 'savings' | 'investing', budgetCents: number | null, spentCents: number) => ({
+      kind, categoryId: kind === 'category' ? 1 : null, accountId: kind === 'category' ? null : 2,
+      name: 'x', archived: false, budgetCents, spentCents,
     });
-    expect(budgetTotals([line(50_000, 42_000), line(10_000, 12_500), line(null, 3_000)])).toEqual({
-      budgetedCents: 60_000,
-      spentBudgetedCents: 54_500,
+    const lines = [
+      line('category', 50_000, 42_000),
+      line('category', 10_000, 12_500),
+      line('category', null, 3_000),
+      line('loan', 38_500, 38_500),
+      line('loan', null, 29_000),
+      line('savings', 20_000, 20_050),
+      line('savings', null, 50_000),
+      { ...line('investing', 50_000, 49_200), accountId: null, group: 'investing' as const },
+    ];
+    expect(budgetTotals(lines)).toEqual({
+      budgetedCents: 98_500,
+      spentBudgetedCents: 93_000,
       unbudgetedSpentCents: 3_000,
       leftCents: 5_500,
+      savingsGoalCents: 20_000,
+      savedCents: 20_050,
+      investingGoalCents: 50_000,
+      investedCents: 49_200,
     });
+    expect(lineStatus(lines[7])).toBe('short');
+    expect(lineStatus({ ...lines[7], spentCents: 50_000 })).toBe('met');
+    expect(lineStatus(lines[1])).toBe('over');
+    expect(lineStatus(lines[3])).toBe('under');
+    expect(lineStatus(lines[5])).toBe('met');
   });
 });

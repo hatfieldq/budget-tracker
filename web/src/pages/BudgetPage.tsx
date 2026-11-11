@@ -1,13 +1,17 @@
-// Monthly budget (D31–D33): type a budget next to any expense category; each
-// row shows what's been spent this month against it, green while at or under,
-// red once over. Each month starts blank; "Copy last month" fills the blanks.
+// Monthly budget (D31–D33, D36): type a budget next to any expense category,
+// loan or savings account. Spending and loan rows are limits: green while at or
+// under, red once over. A loan row counts each payment in full (principal +
+// interest). Savings rows and the "All investing" row (D37) are goals: green
+// once reached, amber while short.
+// Each month starts blank; "Copy last month" fills the blanks.
 // Spending follows the "Viewing as" scope and refreshes whenever this tab
 // regains focus, so entries made on Transactions show up straight away.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addMonths,
-  budgetStatus,
   budgetTotals,
+  lineKey,
+  lineStatus,
   formatCents,
   isValidMonth,
   monthBounds,
@@ -25,8 +29,27 @@ const toAmount = (cents: number | null) => (cents === null ? '' : (cents / 100).
 const monthName = (m: string) =>
   new Date(`${m}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
-const STATUS_TEXT = { over: 'text-red-700', under: 'text-green-700', none: 'text-stone-500' } as const;
-const STATUS_BAR = { over: 'bg-red-600', under: 'bg-green-600', none: 'bg-stone-300' } as const;
+const STATUS_TEXT = {
+  over: 'text-red-700',
+  under: 'text-green-700',
+  met: 'text-green-700',
+  short: 'text-amber-700',
+  none: 'text-stone-500',
+} as const;
+const STATUS_BAR = {
+  over: 'bg-red-600',
+  under: 'bg-green-600',
+  met: 'bg-green-600',
+  short: 'bg-amber-500',
+  none: 'bg-stone-300',
+} as const;
+
+const SECTIONS = [
+  { kind: 'category', title: 'Spending', cols: ['Budget', 'Spent', 'Left'] },
+  { kind: 'loan', title: 'Loan payments', cols: ['Budget', 'Paid', 'Left'] },
+  { kind: 'savings', title: 'Savings goals', cols: ['Goal', 'Saved', 'To go'] },
+  { kind: 'investing', title: 'Investing', cols: ['Goal', 'Invested', 'To go'] },
+] as const;
 
 export function BudgetPage({ params }: { params: URLSearchParams }) {
   const { scope } = useScope();
@@ -64,9 +87,11 @@ export function BudgetPage({ params }: { params: URLSearchParams }) {
     window.location.hash = href('budget', { month: m });
   };
 
-  async function save(categoryId: number, cents: number | null) {
+  async function save(line: BudgetLine, cents: number | null) {
     try {
-      await api.setBudget(month, categoryId, cents);
+      if (line.kind === 'category') await api.setBudget(month, line.categoryId!, cents);
+      else if (line.group) await api.setGroupBudget(month, line.group, cents);
+      else await api.setAccountBudget(month, line.accountId!, cents);
       await reload();
       return true;
     } catch (e) {
@@ -86,8 +111,11 @@ export function BudgetPage({ params }: { params: URLSearchParams }) {
 
   const lines = data?.lines ?? [];
   const totals = budgetTotals(lines);
-  const overall = budgetStatus(totals.budgetedCents, totals.spentBudgetedCents);
-  const hasBudgets = lines.some((l) => l.budgetCents !== null);
+  const overall = totals.leftCents < 0 ? 'over' : 'under';
+  const hasBudgets = lines.some((l) => l.budgetCents !== null && (l.kind === 'category' || l.kind === 'loan'));
+  const hasSavingsGoal = lines.some((l) => l.kind === 'savings' && l.budgetCents !== null);
+  const hasInvestingGoal = lines.some((l) => l.kind === 'investing' && l.budgetCents !== null);
+  const anyBudget = hasBudgets || hasSavingsGoal || hasInvestingGoal;
   const blanks = lines.filter((l) => l.budgetCents === null && !l.archived).length;
   const { from, to } = monthBounds(month);
 
@@ -125,52 +153,83 @@ export function BudgetPage({ params }: { params: URLSearchParams }) {
         </p>
       )}
 
-      {hasBudgets && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Stat label="Budgeted" value={formatCents(totals.budgetedCents)} />
+      {anyBudget && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Budgeted (spending + loans)" value={formatCents(totals.budgetedCents)} />
           <Stat label="Spent" value={formatCents(totals.spentBudgetedCents)} />
           <Stat
             label={overall === 'over' ? 'Over budget' : 'Left to spend'}
             value={formatCents(Math.abs(totals.leftCents))}
             className={STATUS_TEXT[overall]}
           />
+          {hasSavingsGoal && (
+            <Stat
+              label={`Saved of ${formatCents(totals.savingsGoalCents)} goal`}
+              value={formatCents(totals.savedCents)}
+              className={STATUS_TEXT[totals.savedCents >= totals.savingsGoalCents ? 'met' : 'short']}
+            />
+          )}
+          {hasInvestingGoal && (
+            <Stat
+              label={`Invested of ${formatCents(totals.investingGoalCents)} goal`}
+              value={formatCents(totals.investedCents)}
+              className={STATUS_TEXT[totals.investedCents >= totals.investingGoalCents ? 'met' : 'short']}
+            />
+          )}
         </div>
       )}
 
       {data && blanks > 0 && data.previousMonthBudgetCount > 0 && (
         <button className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm hover:bg-stone-50" onClick={copyLastMonth}>
-          Copy last month's budget{hasBudgets ? ' into the blank categories' : ''}
+          Copy last month's budget{anyBudget ? ' into the blank lines' : ''}
         </button>
       )}
-      {data && !hasBudgets && data.previousMonthBudgetCount === 0 && (
-        <p className="text-sm text-stone-600">Type an amount next to a category to start this month's budget.</p>
+      {data && !anyBudget && data.previousMonthBudgetCount === 0 && (
+        <p className="text-sm text-stone-600">Type an amount next to a category, loan or savings account to start this month's budget.</p>
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="overflow-x-auto rounded border border-stone-200 bg-white">
         <table className="w-full text-sm">
-          <thead className="bg-stone-100 text-left text-stone-600">
-            <tr>
-              <th className="px-3 py-2">Category</th>
-              <th className="money px-3 py-2">Budget</th>
-              <th className="money px-3 py-2">Spent</th>
-              <th className="money px-3 py-2">Left</th>
-              <th className="w-1/4 px-3 py-2">
-                <span className="sr-only">Progress</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l) => (
-              <Row key={`${month}-${l.categoryId}`} line={l} txnsHref={href('transactions', { categoryId: l.categoryId, from, to })} onSave={(c) => save(l.categoryId, c)} />
-            ))}
-          </tbody>
+          {SECTIONS.map((sec) => {
+            const rows = lines.filter((l) => l.kind === sec.kind);
+            if (rows.length === 0) return null;
+            return (
+              <tbody key={sec.kind}>
+                <tr className="bg-stone-100 text-left text-stone-600">
+                  <th className="px-3 py-2">{sec.title}</th>
+                  {sec.cols.map((c) => (
+                    <th key={c} className="money px-3 py-2">
+                      {c}
+                    </th>
+                  ))}
+                  <th className="w-1/4 px-3 py-2">
+                    <span className="sr-only">Progress</span>
+                  </th>
+                </tr>
+                {rows.map((l) => (
+                  <Row
+                    key={`${month}-${lineKey(l)}`}
+                    line={l}
+                    txnsHref={
+                      l.kind === 'category'
+                        ? href('transactions', { categoryId: l.categoryId!, from, to })
+                        : l.group
+                          ? href('overview', { from, to }) // Overview: Invested + each account's balance
+                          : href('transactions', { accountId: l.accountId!, from, to })
+                    }
+                    onSave={(c) => save(l, c)}
+                  />
+                ))}
+              </tbody>
+            );
+          })}
         </table>
       </div>
 
       {data && (totals.unbudgetedSpentCents !== 0 || data.uncategorized.count > 0) && (
         <div className="space-y-1 text-sm text-stone-600">
-          {totals.unbudgetedSpentCents !== 0 && hasBudgets && (
+          {totals.unbudgetedSpentCents !== 0 && anyBudget && (
             <p>
               <span className="money">{formatCents(totals.unbudgetedSpentCents)}</span> spent in categories without a budget.
             </p>
@@ -200,7 +259,7 @@ function Stat({ label, value, className = '' }: { label: string; value: string; 
 }
 
 function Row({ line, txnsHref, onSave }: { line: BudgetLine; txnsHref: string; onSave: (cents: number | null) => Promise<boolean> }) {
-  const status = budgetStatus(line.budgetCents, line.spentCents);
+  const status = lineStatus(line);
   const left = line.budgetCents === null ? null : line.budgetCents - line.spentCents;
   const pct =
     line.budgetCents === null || line.spentCents <= 0
@@ -208,12 +267,25 @@ function Row({ line, txnsHref, onSave }: { line: BudgetLine; txnsHref: string; o
       : line.budgetCents === 0
         ? 100
         : Math.min(100, (line.spentCents / line.budgetCents) * 100);
+  const leftText =
+    left === null
+      ? '—'
+      : line.kind === 'savings' || line.kind === 'investing'
+        ? status === 'met'
+          ? 'Goal met'
+          : `${formatCents(left)} to go`
+        : status === 'over'
+          ? `${formatCents(-left)} over`
+          : `${formatCents(left)} left`;
 
   return (
     <tr className="border-t border-stone-100" data-status={status}>
       <td className="px-3 py-1.5">
         {line.name}
         {line.archived && <span className="ml-1 text-xs text-stone-400">(archived)</span>}
+        {!!line.inLoanPaymentsCents && (
+          <div className="text-xs text-stone-500">+{formatCents(line.inLoanPaymentsCents)} counted in loan payments</div>
+        )}
       </td>
       <td className="px-3 py-1.5 text-right">
         <BudgetInput name={line.name} cents={line.budgetCents} disabled={line.archived} onSave={onSave} />
@@ -223,9 +295,7 @@ function Row({ line, txnsHref, onSave }: { line: BudgetLine; txnsHref: string; o
           {formatCents(line.spentCents)}
         </a>
       </td>
-      <td className={`money px-3 py-1.5 font-medium ${STATUS_TEXT[status]}`}>
-        {left === null ? '—' : status === 'over' ? `${formatCents(-left)} over` : `${formatCents(left)} left`}
-      </td>
+      <td className={`money px-3 py-1.5 font-medium ${STATUS_TEXT[status]}`}>{leftText}</td>
       <td className="px-3 py-1.5">
         {line.budgetCents !== null && (
           <div className="h-2 w-full overflow-hidden rounded bg-stone-100" role="presentation">

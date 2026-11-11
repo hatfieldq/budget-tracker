@@ -87,6 +87,12 @@ export const api = {
   /** amountCents null clears the category's budget for that month. */
   setBudget: (month: string, categoryId: number, amountCents: number | null) =>
     request<void>('PUT', `/api/budgets/${month}/${categoryId}`, { amountCents }),
+  /** Loan payment or savings goal for a month; null clears. */
+  setAccountBudget: (month: string, accountId: number, amountCents: number | null) =>
+    request<void>('PUT', `/api/budgets/${month}/accounts/${accountId}`, { amountCents }),
+  /** Group goal ('investing') for a month; null clears. */
+  setGroupBudget: (month: string, group: string, amountCents: number | null) =>
+    request<void>('PUT', `/api/budgets/${month}/groups/${group}`, { amountCents }),
   copyBudget: (month: string) => request<{ copied: number }>('POST', `/api/budgets/${month}/copy-previous`),
 
   today: (scope: Scope) => request<TodaySummary>('GET', `/api/today?scope=${scopeToParam(scope)}`),

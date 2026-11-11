@@ -4,7 +4,7 @@ import { createAccount, getAccount } from '../services/accounts';
 import { createTxn, listTxns } from '../services/ledger';
 import { completeReconciliation, reconcileSummary, setTxnStatus } from '../services/reconcile';
 import { createSnapshot } from '../services/snapshots';
-import { setBudget } from '../services/budgets';
+import { setAccountBudget, setBudget, setGroupBudget } from '../services/budgets';
 import { listPeople } from '../services/people';
 import { listCategories } from '../services/categories';
 
@@ -146,7 +146,10 @@ export function seedDemoData(db: DB): string {
 
   // Monthly budgets for the three demo months: Dining lands over every month,
   // Clothing over in Jan/Mar but under in Feb (the refund), Housing exactly on
-  // budget. Health/Fees/Other are left without a budget.
+  // budget. Health/Fees/Other are left without a budget. The two loans are
+  // budgeted as whole payments (principal + interest) and the Car Fund as a
+  // savings goal; the Emergency Fund has no goal. All investing has a $900
+  // goal: 2 × 192 Roth 401(k) + 150 HSA + 300 brokerage = 834, so it falls short.
   const plan: Record<string, number> = {
     Groceries: 30_000,
     Dining: 6_000,
@@ -155,7 +158,11 @@ export function seedDemoData(db: DB): string {
     Transportation: 6_000,
     Clothing: 5_000,
     Entertainment: 5_000,
-    'Interest Expense': 16_500,
+  };
+  const accountPlan: Record<string, number> = {
+    'Hatchback Loan': 38_500,
+    'Grad School Loan': 29_000,
+    'Car Fund': 20_000,
   };
   let budgets = 0;
   for (const month of ['2026-01', '2026-02', '2026-03']) {
@@ -163,6 +170,12 @@ export function seedDemoData(db: DB): string {
       setBudget(db, month, c[name], cents);
       budgets++;
     }
+    for (const [name, cents] of Object.entries(accountPlan)) {
+      setAccountBudget(db, month, id[name], cents);
+      budgets++;
+    }
+    setGroupBudget(db, month, 'investing', 90_000);
+    budgets++;
   }
 
   return `${accounts.length} accounts, ${count} transactions, ${snapshots} balance snapshots, ${budgets} budget amounts`;

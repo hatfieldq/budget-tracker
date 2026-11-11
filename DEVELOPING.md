@@ -34,7 +34,9 @@ Start the app with `npm run dev` and open http://127.0.0.1:5173 (it opens on **T
    you = joint), opening date = the day you start tracking, opening balance =
    the balance at the end of the day before. Cards and loans: enter the amount owed.
 2. **Categories**: rename/add/archive until the list matches how you think about money.
-3. **Budget**: type this month's amount next to each category you want to watch.
+3. **Budget**: type this month's amount next to each category you want to watch,
+   each loan (the full monthly payment), each savings account (a goal) and
+   **All investing** (one goal for everything into brokerage/retirement accounts).
 
 **Every week (about 15 minutes)**
 1. **Today → enter the week's transactions** from receipts or your bank/card sites.
@@ -147,7 +149,7 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | `src/money.test.ts` | Tests for the above. |
 | `src/entry.ts` | Entry-form ↔ postings conversion: `entryToPostings`, `txnToEntry`, `lineCents`, `splitImbalance`, `carryStatuses`. **The only place form directions become debit/credit signs.** |
 | `src/report.ts` | `OverviewReport` shape, period presets (`presetRange`), `dayBefore`. |
-| `src/budget.ts` | Budget helpers: `isValidMonth`, `addMonths`, `monthBounds`, `budgetStatus` (over only when spent > budget), `budgetTotals`, and the `BudgetMonth` shape. |
+| `src/budget.ts` | Budget helpers: `isValidMonth`, `addMonths`, `monthBounds`, `budgetStatus` (over only when spent > budget), `savingsStatus` (goal met/short), `lineStatus`, `budgetTotals`, and the `BudgetLine`/`BudgetMonth` shapes. |
 | `src/balanceUpdate.ts` | Checking/savings statement helper: `compareStatement` (match / interest / shortfall) and `interestPostings`. |
 | `src/entry.test.ts` | Tests for the above. |
 | `src/index.ts` | Re-exports; import from `'@ledger/shared'`. |
@@ -167,6 +169,8 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | `src/db/migrate.ts` | Runs `migrations/NNN_*.sql` files newer than `PRAGMA user_version`, with foreign keys off and a `foreign_key_check` before commit. |
 | `src/db/migrations/001_initial.sql` | **The whole schema**, with comments. Read this to understand the data. |
 | `src/db/migrations/003_budgets.sql` | The `budget` table: one amount per expense category per month. |
+| `src/db/migrations/004_budget_accounts.sql` | Rebuilds `budget` so a row targets a category **or** a loan/savings account. |
+| `src/db/migrations/005_budget_groups.sql` | Adds `group_key` (`investing`) so a row can target a group of accounts. |
 | `src/db/migrations/002_roth_401k.sql` | Adds `roth_401k`; example of rebuilding a table to change a CHECK. Copy this pattern for similar changes. |
 | `src/db/bootstrap.ts` | First-run rows: the household, "Me"/"Partner", system + default categories. Helpers `householdId()`, `systemCategoryId()`. |
 | `src/db/seed.ts` | Fabricated demo data (used by `npm run seed` and tests). |
@@ -177,7 +181,7 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | `src/services/reconcile.ts` | Cleared toggle (`setTxnStatus`), statement reconciliation (`reconcileSummary`, `completeReconciliation`, `undoLastReconciliation`). |
 | `src/services/snapshots.ts` | Investment value snapshots and **`recomputeValuations`**, which rebuilds the system "Valuation change" txns. Called by ledger/accounts writes that touch an investment account. |
 | `src/services/reports.ts` | **Report engine** (PLAN §3): `categoryTotals` (category postings in eligible txns), `spendingByCategory` (budgets), `overviewReport` (everything on Overview, incl. the net-worth identity check), `scopeInfo`. |
-| `src/services/budgets.ts` | Monthly budgets: `getBudgetMonth` (budget + spent per category), `setBudget`, `copyPreviousMonth`. |
+| `src/services/budgets.ts` | Monthly budgets: `getBudgetMonth` (category, loan, savings and "All investing" lines; loan = whole payment, its interest moved off the category line), `setBudget`, `setAccountBudget`, `setGroupBudget`, `copyPreviousMonth`. |
 | `src/services/today.ts` | `todaySummary` (Today cards; `STALE_AFTER_DAYS = 7`) and `listPayees` (payee → last category). |
 | `src/services/scope.ts` | Parses `?scope=household` / `person:1` and turns it into "which accounts". |
 | `src/routes/*.ts` | One file per resource; each just maps a URL to a service function. |

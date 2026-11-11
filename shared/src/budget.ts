@@ -1,18 +1,46 @@
-// Monthly budget helpers shared by server and web (D31–D33).
+// Monthly budget helpers shared by server and web (D31–D33, D36).
 // A month is 'YYYY-MM'. Budget amounts and spending are natural terms:
 // positive = money spent (expense categories are debits, so ledger sign already
 // matches). Refunds can make spending negative.
+//
+// Three kinds of line:
+//   category - expense category spending (minus anything inside loan payments)
+//   loan     - the whole of each payment to the loan: principal + expense lines in it (interest)
+//   savings  - net money moved into a savings account (transfers + interest); a goal to reach
+//   investing - the "All investing" group: net money into every brokerage and
+//              retirement account (= Overview's net contributions; valuations never count); a goal
 
 export type BudgetStatus = 'none' | 'under' | 'over';
+export type SavingsStatus = 'none' | 'met' | 'short';
+export type BudgetLineKind = 'category' | 'loan' | 'savings' | 'investing';
+
+/** Budget groups (lines covering several accounts). */
+export const BUDGET_GROUPS = ['investing'] as const;
+export type BudgetGroup = (typeof BUDGET_GROUPS)[number];
+
+/** Goal lines: reaching the amount is good. The rest are limits. */
+export const isGoalLine = (l: Pick<BudgetLine, 'kind'>) => l.kind === 'savings' || l.kind === 'investing';
 
 export interface BudgetLine {
-  categoryId: number;
+  kind: BudgetLineKind;
+  /** Set for category lines. */
+  categoryId: number | null;
+  /** Set for loan and savings lines. */
+  accountId: number | null;
+  /** Set for group lines ('investing'). */
+  group?: BudgetGroup;
   name: string;
   archived: boolean;
-  /** null = no budget set for this category this month. */
+  /** null = no budget set for this line this month. */
   budgetCents: number | null;
   spentCents: number;
+  /** Category lines: spending inside loan payments, counted on the loan's line instead. */
+  inLoanPaymentsCents?: number;
 }
+
+/** Stable key for a line (React keys, lookups). */
+export const lineKey = (l: Pick<BudgetLine, 'kind' | 'categoryId' | 'accountId' | 'group'>) =>
+  l.kind === 'category' ? `c${l.categoryId}` : l.group ? `g${l.group}` : `a${l.accountId}`;
 
 export interface BudgetMonth {
   month: string;
@@ -22,11 +50,11 @@ export interface BudgetMonth {
   lines: BudgetLine[];
   /** Money-out postings to Uncategorized this month (D6): not budgetable. */
   uncategorized: { cents: number; count: number };
-  /** How many categories have a budget in the previous month (for "Copy last month"). */
+  /** How many lines have a budget in the previous month (for "Copy last month"). */
   previousMonthBudgetCount: number;
 }
 
-/** Body for PUT /api/budgets/:month/:categoryId. null clears the budget. */
+/** Body for PUT /api/budgets/:month/:categoryId, /accounts/:accountId and /groups/:group. null clears. */
 export interface BudgetSetInput {
   amountCents: number | null;
 }
@@ -54,17 +82,54 @@ export function budgetStatus(budgetCents: number | null, spentCents: number): Bu
   return spentCents > budgetCents ? 'over' : 'under';
 }
 
-/** Totals across lines. Spending in categories without a budget is kept separate. */
+/** Savings is a goal: reaching it (or more) is good; below it is still to go. */
+export function savingsStatus(goalCents: number | null, savedCents: number): SavingsStatus {
+  if (goalCents === null) return 'none';
+  return savedCents >= goalCents ? 'met' : 'short';
+}
+
+export const lineStatus = (l: BudgetLine): BudgetStatus | SavingsStatus =>
+  isGoalLine(l) ? savingsStatus(l.budgetCents, l.spentCents) : budgetStatus(l.budgetCents, l.spentCents);
+
+/**
+ * Totals. Spending (categories + loan payments), savings and investing are
+ * kept apart, since spending is a limit and the others are goals. Category spending without a
+ * budget is reported separately.
+ */
 export function budgetTotals(lines: BudgetLine[]) {
   let budgetedCents = 0;
   let spentBudgetedCents = 0;
   let unbudgetedSpentCents = 0;
+  let savingsGoalCents = 0;
+  let savedCents = 0;
+  let investingGoalCents = 0;
+  let investedCents = 0;
   for (const l of lines) {
-    if (l.budgetCents === null) unbudgetedSpentCents += l.spentCents;
-    else {
+    if (l.kind === 'savings') {
+      if (l.budgetCents !== null) {
+        savingsGoalCents += l.budgetCents;
+        savedCents += l.spentCents;
+      }
+    } else if (l.kind === 'investing') {
+      if (l.budgetCents !== null) {
+        investingGoalCents += l.budgetCents;
+        investedCents += l.spentCents;
+      }
+    } else if (l.budgetCents === null) {
+      if (l.kind === 'category') unbudgetedSpentCents += l.spentCents;
+    } else {
       budgetedCents += l.budgetCents;
       spentBudgetedCents += l.spentCents;
     }
   }
-  return { budgetedCents, spentBudgetedCents, unbudgetedSpentCents, leftCents: budgetedCents - spentBudgetedCents };
+  return {
+    budgetedCents,
+    spentBudgetedCents,
+    unbudgetedSpentCents,
+    leftCents: budgetedCents - spentBudgetedCents,
+    savingsGoalCents,
+    savedCents,
+    investingGoalCents,
+    investedCents,
+  };
 }
