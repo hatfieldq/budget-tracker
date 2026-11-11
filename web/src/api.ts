@@ -4,10 +4,18 @@ import type {
   Account,
   AccountInput,
   AccountUpdate,
+  BudgetMonth,
   Category,
   CategoryInput,
+  OverviewReport,
   Person,
+  ReconcileInput,
+  ReconcileSummary,
+  Reconciliation,
   Scope,
+  Snapshot,
+  SnapshotInput,
+  StatusInput,
   Txn,
   TxnFilters,
   TxnInput,
@@ -46,6 +54,9 @@ export const api = {
   createAccount: (input: AccountInput) => request<Account>('POST', '/api/accounts', input),
   updateAccount: (id: number, patch: AccountUpdate) =>
     request<Account>('PATCH', `/api/accounts/${id}`, patch),
+  /** One account, balance as of the end of `asOf` (default today). */
+  account: (id: number, asOf?: string) =>
+    request<Account>('GET', `/api/accounts/${id}${asOf ? `?asOf=${asOf}` : ''}`),
   archiveAccount: (id: number, archived: boolean) =>
     request<Account>('POST', `/api/accounts/${id}/${archived ? 'archive' : 'unarchive'}`),
 
@@ -53,6 +64,31 @@ export const api = {
   createTxn: (input: TxnInput) => request<Txn>('POST', '/api/txns', input),
   updateTxn: (id: number, input: TxnInput) => request<Txn>('PUT', `/api/txns/${id}`, input),
   deleteTxn: (id: number) => request<void>('DELETE', `/api/txns/${id}`),
+  setTxnStatus: (id: number, input: StatusInput) => request<Txn>('POST', `/api/txns/${id}/status`, input),
+
+  reconcileSummary: (accountId: number, statementDate: string) =>
+    request<ReconcileSummary>('GET', `/api/accounts/${accountId}/reconcile?statementDate=${statementDate}`),
+  reconcile: (accountId: number, input: ReconcileInput) =>
+    request<Reconciliation>('POST', `/api/accounts/${accountId}/reconciliations`, input),
+  undoReconcile: (accountId: number) =>
+    request<void>('DELETE', `/api/accounts/${accountId}/reconciliations/latest`),
+
+  snapshots: (accountId: number) => request<Snapshot[]>('GET', `/api/accounts/${accountId}/snapshots`),
+  createSnapshot: (accountId: number, input: SnapshotInput) =>
+    request<Snapshot>('POST', `/api/accounts/${accountId}/snapshots`, input),
+  updateSnapshot: (id: number, patch: Partial<SnapshotInput>) =>
+    request<Snapshot>('PATCH', `/api/snapshots/${id}`, patch),
+  deleteSnapshot: (id: number) => request<void>('DELETE', `/api/snapshots/${id}`),
+
+  budgetMonth: (month: string, scope: Scope) =>
+    request<BudgetMonth>('GET', `/api/budgets/${month}?scope=${scopeToParam(scope)}`),
+  /** amountCents null clears the category's budget for that month. */
+  setBudget: (month: string, categoryId: number, amountCents: number | null) =>
+    request<void>('PUT', `/api/budgets/${month}/${categoryId}`, { amountCents }),
+  copyBudget: (month: string) => request<{ copied: number }>('POST', `/api/budgets/${month}/copy-previous`),
+
+  overview: (scope: Scope, from: string, to: string) =>
+    request<OverviewReport>('GET', `/api/reports/overview?scope=${scopeToParam(scope)}&from=${from}&to=${to}`),
 };
 
 /** TxnFilters -> query string, skipping empty values. */
@@ -64,5 +100,6 @@ export function txnQuery(f: TxnFilters): string {
     if (v !== undefined && v !== '') params.set(key, String(v));
   }
   if (f.uncategorized) params.set('uncategorized', '1');
+  if (f.unreconciled) params.set('unreconciled', '1');
   return params.toString();
 }

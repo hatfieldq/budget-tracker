@@ -2,7 +2,9 @@
 // current page. Navigation is the URL hash (#/accounts), so refresh keeps your place.
 import { ScopeSwitcher } from './components/ScopeSwitcher';
 import { AccountsPage } from './pages/AccountsPage';
+import { BudgetPage } from './pages/BudgetPage';
 import { CategoriesPage } from './pages/CategoriesPage';
+import { OverviewPage } from './pages/OverviewPage';
 import { PeoplePage } from './pages/PeoplePage';
 import { Placeholder } from './pages/Placeholder';
 import { TransactionsPage } from './pages/TransactionsPage';
@@ -11,6 +13,7 @@ import { useRoute } from './router';
 const PAGES = [
   { path: 'today', label: 'Today' },
   { path: 'transactions', label: 'Transactions' },
+  { path: 'budget', label: 'Budget' },
   { path: 'accounts', label: 'Accounts' },
   { path: 'overview', label: 'Overview' },
   { path: 'categories', label: 'Categories' },
@@ -43,10 +46,11 @@ export function App() {
       <main>
         {path === 'accounts' && <AccountsPage />}
         {path === 'transactions' && <TransactionsPage key={route.params.toString()} params={route.params} />}
+        {path === 'budget' && <BudgetPage params={route.params} />}
         {path === 'categories' && <CategoriesPage />}
         {path === 'people' && <PeoplePage />}
-        {path === 'today' && <Placeholder title="Today" session={5} />}
-        {path === 'overview' && <Placeholder title="Overview" session={4} />}
+        {path === 'today' && <Placeholder title="Today" session={6} />}
+        {path === 'overview' && <OverviewPage params={route.params} />}
       </main>
     </div>
   );

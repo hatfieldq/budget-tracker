@@ -7,7 +7,7 @@ import { parseScope } from '../services/scope';
 
 type ListQuery = Partial<
   Record<
-    'scope' | 'accountId' | 'categoryId' | 'from' | 'to' | 'q' | 'status' | 'uncategorized' | 'createdBy' | 'limit' | 'offset',
+    'scope' | 'accountId' | 'categoryId' | 'from' | 'to' | 'q' | 'status' | 'unreconciled' | 'uncategorized' | 'createdBy' | 'limit' | 'offset',
     string
   >
 >;
@@ -20,7 +20,7 @@ const optionalInt = (v: string | undefined, name: string) => {
 };
 
 export function registerTxnRoutes(app: FastifyInstance, db: DB) {
-  // GET /api/txns?scope=&accountId=&categoryId=&from=&to=&q=&status=&uncategorized=1&createdBy=&limit=&offset=
+  // GET /api/txns?scope=&accountId=&categoryId=&from=&to=&q=&status=&unreconciled=1&uncategorized=1&createdBy=&limit=&offset=
   app.get<{ Querystring: ListQuery }>('/api/txns', async (req) => {
     const q = req.query;
     if (q.status && !['uncleared', 'cleared', 'reconciled'].includes(q.status)) {
@@ -34,6 +34,7 @@ export function registerTxnRoutes(app: FastifyInstance, db: DB) {
       to: q.to || undefined,
       q: q.q,
       status: (q.status || undefined) as PostingStatus | undefined,
+      unreconciled: q.unreconciled === '1',
       uncategorized: q.uncategorized === '1',
       createdBy: optionalInt(q.createdBy, 'createdBy'),
       limit: optionalInt(q.limit, 'limit'),

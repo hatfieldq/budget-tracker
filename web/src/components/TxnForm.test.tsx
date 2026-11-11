@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 const account = (id: number, name: string, type: Account['type']): Account => ({
   id, name, type, subtype: null, ownerIds: [1], isJoint: false, openingDate: '2026-01-01',
-  openingBalanceCents: 0, balanceCents: 0, archivedAt: null,
+  openingBalanceCents: 0, balanceCents: 0, archivedAt: null, lastSnapshotDate: null, lastReconciledDate: null,
 });
 const category = (id: number, name: string, kind: Category['kind'], isSystem = false): Category => ({
   id, name, kind, isSystem, archivedAt: null,

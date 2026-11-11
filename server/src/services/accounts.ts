@@ -13,6 +13,7 @@ import { isValidDate, localToday } from '../dates';
 import { NotFoundError, ValidationError } from '../errors';
 import { assertActivePeople } from './people';
 import { scopeAccountFilter } from './scope';
+import { recomputeValuations } from './snapshots';
 
 interface AccountRow {
   id: number;
@@ -24,6 +25,8 @@ interface AccountRow {
   owner_ids: string; // comma-separated, from group_concat
   opening_cents: number;
   balance_cents: number;
+  last_snapshot_date: string | null;
+  last_reconciled_date: string | null;
 }
 
 // Balance = sum of every posting to the account dated on or before :asOf.
@@ -36,7 +39,9 @@ const SELECT_ACCOUNTS = `
     COALESCE((SELECT SUM(p.amount_cents) FROM posting p JOIN txn t ON t.id = p.txn_id
               WHERE p.account_id = a.id AND t.kind = 'opening'), 0) AS opening_cents,
     COALESCE((SELECT SUM(p.amount_cents) FROM posting p JOIN txn t ON t.id = p.txn_id
-              WHERE p.account_id = a.id AND t.date <= :asOf), 0) AS balance_cents
+              WHERE p.account_id = a.id AND t.date <= :asOf), 0) AS balance_cents,
+    (SELECT MAX(date) FROM balance_snapshot WHERE account_id = a.id) AS last_snapshot_date,
+    (SELECT MAX(statement_date) FROM reconciliation WHERE account_id = a.id) AS last_reconciled_date
   FROM account a`;
 
 function toAccount(r: AccountRow): Account {
@@ -52,6 +57,8 @@ function toAccount(r: AccountRow): Account {
     openingBalanceCents: r.opening_cents,
     balanceCents: r.balance_cents,
     archivedAt: r.archived_at,
+    lastSnapshotDate: r.last_snapshot_date,
+    lastReconciledDate: r.last_reconciled_date,
   };
 }
 
@@ -184,6 +191,12 @@ export function updateAccount(db: DB, id: number, patch: AccountUpdate): Account
         `Opening date can't be after existing transactions (${earlier.n} dated before ${openingDate})`,
       );
     }
+    const snaps = db
+      .prepare('SELECT COUNT(*) AS n FROM balance_snapshot WHERE account_id = ? AND date < ?')
+      .get(id, openingDate) as { n: number };
+    if (snaps.n > 0) {
+      throw new ValidationError(`Opening date can't be after existing balance snapshots`);
+    }
   }
 
   db.transaction(() => {
@@ -193,6 +206,7 @@ export function updateAccount(db: DB, id: number, patch: AccountUpdate): Account
     if (ownerIds) setOwners(db, id, ownerIds);
     if (openingChanged) {
       writeOpeningTxn(db, id, openingDate, openingCents, patch.createdByPersonId!);
+      recomputeValuations(db, [id]);
     }
   })();
   return getAccount(db, id);

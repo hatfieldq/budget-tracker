@@ -89,6 +89,10 @@ export interface Account {
   openingBalanceCents: number; // ledger sign
   balanceCents: number; // ledger sign, as of today
   archivedAt: string | null;
+  /** Latest balance snapshot date (investment accounts), or null. */
+  lastSnapshotDate: string | null;
+  /** Statement date of the latest completed reconciliation, or null. */
+  lastReconciledDate: string | null;
 }
 
 /** Body for POST /api/accounts. Money in ledger sign. */
@@ -173,6 +177,8 @@ export interface TxnFilters {
   to?: string;
   q?: string;
   status?: PostingStatus;
+  /** Only txns with an uncleared or cleared line (in accountId, if given). */
+  unreconciled?: boolean;
   uncategorized?: boolean;
   createdBy?: number;
   limit?: number;
@@ -187,4 +193,67 @@ export interface TxnPage {
 export interface CategoryInput {
   name: string;
   kind: 'income' | 'expense' | 'tax';
+}
+
+// ---------- Reconciliation and snapshots ----------
+
+/** Checking, savings, cards and loans are reconciled against statements. */
+export const RECONCILABLE_TYPES: readonly AccountType[] = ['checking', 'savings', 'credit_card', 'loan'];
+/** Checking and savings get the statement-balance → interest helper (D17). */
+export const INTEREST_HELPER_TYPES: readonly AccountType[] = ['checking', 'savings'];
+
+/** Body for POST /api/txns/:id/status. Without accountId, every unreconciled account line changes. */
+export interface StatusInput {
+  status: 'uncleared' | 'cleared';
+  accountId?: number;
+}
+
+export interface Reconciliation {
+  id: number;
+  accountId: number;
+  statementDate: string;
+  statementBalanceCents: number; // ledger sign
+  completedByPersonId: number | null;
+  completedAt: string;
+  postingCount: number;
+}
+
+/** GET /api/accounts/:id/reconcile?statementDate=. All ledger sign. */
+export interface ReconcileSummary {
+  accountId: number;
+  statementDate: string;
+  /** Σ reconciled postings (incl. the opening balance). */
+  reconciledCents: number;
+  /** Σ cleared postings dated on or before statementDate. */
+  clearedCents: number;
+  clearedCount: number;
+  /** Cleared postings dated after statementDate (not counted). */
+  clearedAfterCount: number;
+  last: Reconciliation | null;
+}
+
+/** Body for POST /api/accounts/:id/reconciliations. Balance in ledger sign. */
+export interface ReconcileInput {
+  statementDate: string;
+  statementBalanceCents: number;
+  personId: number;
+}
+
+export interface Snapshot {
+  id: number;
+  accountId: number;
+  date: string;
+  balanceCents: number;
+  note: string | null;
+  /** The valuation change this snapshot booked (0 when the ledger already matched). */
+  valuationCents: number;
+  createdByPersonId: number;
+}
+
+/** Body for POST /api/accounts/:id/snapshots (PATCH /api/snapshots/:id takes a partial). */
+export interface SnapshotInput {
+  date: string;
+  balanceCents: number;
+  note?: string | null;
+  createdByPersonId: number;
 }

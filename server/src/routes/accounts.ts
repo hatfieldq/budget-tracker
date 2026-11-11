@@ -9,6 +9,8 @@ import {
   updateAccount,
 } from '../services/accounts';
 import { parseScope } from '../services/scope';
+import { isValidDate } from '../dates';
+import { ValidationError } from '../errors';
 
 export function registerAccountRoutes(app: FastifyInstance, db: DB) {
   // GET /api/accounts?scope=household|person:1&includeArchived=1
@@ -21,9 +23,12 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB) {
       }),
   );
 
-  app.get<{ Params: { id: string } }>('/api/accounts/:id', async (req) =>
-    getAccount(db, Number(req.params.id)),
-  );
+  // GET /api/accounts/:id?asOf=YYYY-MM-DD  (balance at end of that date; default today)
+  app.get<{ Params: { id: string }; Querystring: { asOf?: string } }>('/api/accounts/:id', async (req) => {
+    const { asOf } = req.query;
+    if (asOf !== undefined && !isValidDate(asOf)) throw new ValidationError('asOf must be YYYY-MM-DD');
+    return getAccount(db, Number(req.params.id), asOf);
+  });
 
   app.post<{ Body: AccountInput }>('/api/accounts', async (req, reply) => {
     reply.status(201);

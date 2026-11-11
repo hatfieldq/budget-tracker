@@ -1,7 +1,10 @@
 import type { AccountInput, PostingInput } from '@ledger/shared';
 import type { DB } from './connection';
-import { createAccount } from '../services/accounts';
-import { createTxn } from '../services/ledger';
+import { createAccount, getAccount } from '../services/accounts';
+import { createTxn, listTxns } from '../services/ledger';
+import { completeReconciliation, reconcileSummary, setTxnStatus } from '../services/reconcile';
+import { createSnapshot } from '../services/snapshots';
+import { setBudget } from '../services/budgets';
 import { listPeople } from '../services/people';
 import { listCategories } from '../services/categories';
 
@@ -110,5 +113,57 @@ export function seedDemoData(db: DB): string {
   add('2026-03-29', 'SQ *POPUP MKT', [A('Travel Card', -2_475), C('Uncategorized', 2_475)]);
   add('2026-03-30', 'Venmo', [A('My Checking', 4_000), C('Uncategorized', -4_000)]);
 
-  return `${accounts.length} accounts, ${count} transactions`;
+  // Month-end investment values: the ledger balance plus made-up growth/loss,
+  // so each snapshot books a Valuation change.
+  const growth: Record<string, number[]> = {
+    'Taxable Brokerage': [41_250, -18_730, 27_115],
+    'Work Roth 401(k)': [88_420, -35_610, 52_005],
+    'Roth IRA': [19_870, -8_240, 12_330],
+    'Health Savings': [310, -120, 455],
+  };
+  let snapshots = 0;
+  for (const [name, deltas] of Object.entries(growth)) {
+    ['2026-01-31', '2026-02-28', '2026-03-31'].forEach((date, i) => {
+      const ledger = getAccount(db, id[name], date).balanceCents;
+      createSnapshot(db, id[name], { date, balanceCents: ledger + deltas[i], createdByPersonId: me.id });
+      snapshots++;
+    });
+  }
+
+  // Cleared through February on the joint checking account and travel card;
+  // the travel card's January statement is reconciled.
+  for (const name of ['Joint Checking', 'Travel Card']) {
+    for (const t of listTxns(db, { accountId: id[name], to: '2026-02-28', limit: 1000 }).txns) {
+      if (t.kind === 'standard') setTxnStatus(db, t.id, { status: 'cleared', accountId: id[name] });
+    }
+  }
+  const jan = reconcileSummary(db, id['Travel Card'], '2026-01-31');
+  completeReconciliation(db, id['Travel Card'], {
+    statementDate: '2026-01-31',
+    statementBalanceCents: jan.reconciledCents + jan.clearedCents,
+    personId: me.id,
+  });
+
+  // Monthly budgets for the three demo months: Dining lands over every month,
+  // Clothing over in Jan/Mar but under in Feb (the refund), Housing exactly on
+  // budget. Health/Fees/Other are left without a budget.
+  const plan: Record<string, number> = {
+    Groceries: 30_000,
+    Dining: 6_000,
+    Housing: 185_000,
+    Utilities: 15_000,
+    Transportation: 6_000,
+    Clothing: 5_000,
+    Entertainment: 5_000,
+    'Interest Expense': 16_500,
+  };
+  let budgets = 0;
+  for (const month of ['2026-01', '2026-02', '2026-03']) {
+    for (const [name, cents] of Object.entries(plan)) {
+      setBudget(db, month, c[name], cents);
+      budgets++;
+    }
+  }
+
+  return `${accounts.length} accounts, ${count} transactions, ${snapshots} balance snapshots, ${budgets} budget amounts`;
 }

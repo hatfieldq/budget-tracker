@@ -73,10 +73,18 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
   | Loan payment $300 (250 principal, 50 interest) | checking −300, loan +250, Interest Expense +50 |
   | Paycheck: $5,000 gross, $1,000 taxes, $500 401k, $3,500 deposited | Salary −5000, Federal Income Tax +1000, 401k +500, checking +3500 |
   | Savings interest $4.12 | savings +4.12, Interest Income −4.12 |
+  | 401(k) snapshot says $41,100 but ledger says $41,000 | *system* txn: 401k +100, Valuation Change −100 |
 
   In the entry form you never type signs: *Spend/Receive* uses Money out/in;
   *Split* lines use **Into / Out of** for accounts and **Spent / Received**
   for categories. `shared/src/entry.ts` converts.
+* **Status** of an account posting: *uncleared* (entered) → *cleared* (seen on
+  the bank's site; click **C** in the register) → *reconciled* (matched to a
+  finished statement; locked). Reconciling = tick items until cleared total =
+  statement balance, then Finish. Undo the latest from the reconcile bar.
+* **Valuations** are never typed. Each snapshot's valuation is recomputed from
+  scratch (oldest first) whenever that investment account changes, so the
+  balance at the end of every snapshot date always equals the snapshot.
 * **Reports** decide what's income/spending by *where postings land*, not by a
   transaction "type". See PLAN.md for exact definitions.
 
@@ -103,6 +111,9 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | `src/money.ts` | `parseMoney`, `formatCents`, `ledgerToNatural`, `naturalToLedger`. |
 | `src/money.test.ts` | Tests for the above. |
 | `src/entry.ts` | Entry-form ↔ postings conversion: `entryToPostings`, `txnToEntry`, `lineCents`, `splitImbalance`, `carryStatuses`. **The only place form directions become debit/credit signs.** |
+| `src/report.ts` | `OverviewReport` shape, period presets (`presetRange`), `dayBefore`. |
+| `src/budget.ts` | Budget helpers: `isValidMonth`, `addMonths`, `monthBounds`, `budgetStatus` (over only when spent > budget), `budgetTotals`, and the `BudgetMonth` shape. |
+| `src/balanceUpdate.ts` | Checking/savings statement helper: `compareStatement` (match / interest / shortfall) and `interestPostings`. |
 | `src/entry.test.ts` | Tests for the above. |
 | `src/index.ts` | Re-exports; import from `'@ledger/shared'`. |
 
@@ -120,6 +131,7 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | `src/db/connection.ts` | `openDb(path, { backupsDir })`: opens SQLite, turns on WAL + foreign keys, backs up if migrations are pending, migrates, bootstraps. |
 | `src/db/migrate.ts` | Runs `migrations/NNN_*.sql` files newer than `PRAGMA user_version`, with foreign keys off and a `foreign_key_check` before commit. |
 | `src/db/migrations/001_initial.sql` | **The whole schema**, with comments. Read this to understand the data. |
+| `src/db/migrations/003_budgets.sql` | The `budget` table: one amount per expense category per month. |
 | `src/db/migrations/002_roth_401k.sql` | Adds `roth_401k`; example of rebuilding a table to change a CHECK. Copy this pattern for similar changes. |
 | `src/db/bootstrap.ts` | First-run rows: the household, "Me"/"Partner", system + default categories. Helpers `householdId()`, `systemCategoryId()`. |
 | `src/db/seed.ts` | Fabricated demo data (used by `npm run seed` and tests). |
@@ -127,12 +139,20 @@ LEDGER_DB=/tmp/scratch.sqlite npm run seed
 | `src/services/people.ts` | List/rename people; `assertActivePeople` validation helper. |
 | `src/services/categories.ts` | List, create, rename/change kind, archive categories (system ones locked). |
 | `src/services/ledger.ts` | **The ledger.** `createTxn`, `updateTxn`, `deleteTxn`, `getTxn`, `listTxns` (register filters + running balance). All posting validation rules are in `validate()` here. |
+| `src/services/reconcile.ts` | Cleared toggle (`setTxnStatus`), statement reconciliation (`reconcileSummary`, `completeReconciliation`, `undoLastReconciliation`). |
+| `src/services/snapshots.ts` | Investment value snapshots and **`recomputeValuations`**, which rebuilds the system "Valuation change" txns. Called by ledger/accounts writes that touch an investment account. |
+| `src/services/reports.ts` | **Report engine** (PLAN §3): `categoryTotals` (category postings in eligible txns), `spendingByCategory` (budgets), `overviewReport` (everything on Overview, incl. the net-worth identity check), `scopeInfo`. |
+| `src/services/budgets.ts` | Monthly budgets: `getBudgetMonth` (budget + spent per category), `setBudget`, `copyPreviousMonth`. |
 | `src/services/scope.ts` | Parses `?scope=household` / `person:1` and turns it into "which accounts". |
 | `src/routes/*.ts` | One file per resource; each just maps a URL to a service function. |
 | `src/ops/backup.ts` | Backup / restore logic (tested). |
 | `scripts/*.ts` | Command-line wrappers: `seed`, `backup`, `restore`, `sql`. |
 | `test/helpers.ts` | `testDb()` (fresh in-memory DB), `accountInput()`, `unbalancedTxnIds()`, `acct()`/`cat()` posting shorthands, `balance()`, `categoryTotal()`, `categoryId()`. |
 | `test/ledger.test.ts` | Ledger rules: AT-1–4, 9, 10, 12, 13, 18, 20 and register filters. |
+| `test/reconcile.test.ts` | Cleared toggle, AT-13 (lock via real reconcile), AT-14, AT-21 (ledger part), API. |
+| `test/snapshots.test.ts` | AT-6 valuation rules, snapshot validation, seed invariant, API. |
+| `test/reports.test.ts` | Report rules: AT-1–8, 11, 17, 20, 21 (report side), Uncategorized by sign, period edges, archived accounts, API. |
+| `test/budgets.test.ts` | AT-22: spending per category (what counts and what doesn't), scope, budget set/clear/validation, copy last month, seed, API. |
 | `test/migrations.test.ts` | Migration 002 on a v1 DB; pre-migrate backup. |
 | `test/*.test.ts` | Tests. `api.test.ts` uses `app.inject()` to call routes without a real port. |
 
@@ -158,8 +178,14 @@ so it either fully happens or doesn't.
 | `src/components/AccountForm.test.tsx` | Component tests with Testing Library. |
 | `src/components/TxnForm.tsx` | Transaction entry: Spend/Receive, Transfer, Split modes; edit and duplicate. Stays open after adding (`clearForNext` decides what resets; the date is kept). |
 | `src/components/TxnForm.test.tsx` | Tests each mode, split balancing, edit, duplicate, sticky date. |
-| `src/pages/AccountsPage.tsx` | Accounts screen. |
-| `src/pages/TransactionsPage.tsx` | Register: filters, table rows (`TxnRow`), edit/duplicate/delete. |
+| `src/pages/AccountsPage.tsx` | Accounts screen; row links: Register, Reconcile, Update balance / Update value, Edit, Archive. |
+| `src/components/ReconcileBar.tsx` | Statement date/balance, difference, Finish, Undo; shown by the register in reconcile mode (`#/transactions?accountId=N&reconcile=1`). |
+| `src/components/SnapshotPanel.tsx` | "Update value" for investment accounts: add/edit/delete snapshots, shows growth/loss per snapshot. |
+| `src/components/BalanceUpdatePanel.tsx` | "Update balance" for checking/savings: compare statement vs. app, book interest. |
+| `src/components/*.test.tsx` | Component tests; `ReconcileBar` and `BalanceUpdatePanel` mock `../api` with `vi.mock`. |
+| `src/pages/TransactionsPage.tsx` | Register: filters (URL params `accountId`, `categoryId`, `from`, `to`, `uncategorized`, `reconcile`), table rows (`TxnRow`), edit/duplicate/delete. |
+| `src/pages/OverviewPage.tsx` | Overview: period presets, totals, income/tax/spending breakdowns, net worth by group with valuation dates, change-in-net-worth check. Test: `OverviewPage.test.tsx`. |
+| `src/pages/BudgetPage.tsx` | Budget tab: month picker, inline budget inputs, spent vs. budget (red over / green under), copy last month. Test: `BudgetPage.test.tsx`. |
 | `src/pages/CategoriesPage.tsx` | Add/rename/archive categories. |
 | `src/pages/PeoplePage.tsx` | Rename people. |
 | `src/pages/Placeholder.tsx` | Stand-in for screens not built yet. |

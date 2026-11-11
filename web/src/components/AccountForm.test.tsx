@@ -44,6 +44,7 @@ describe('AccountForm', () => {
     const account: Account = {
       id: 9, name: 'Hatchback Loan', type: 'loan', subtype: 'auto', ownerIds: [1], isJoint: false,
       openingDate: '2026-01-01', openingBalanceCents: -1450000, balanceCents: -1450000, archivedAt: null,
+      lastSnapshotDate: null, lastReconciledDate: null,
     };
     render(
       <AccountForm people={people} actingPersonId={1} account={account} onSubmit={vi.fn()} onCancel={() => {}} />,

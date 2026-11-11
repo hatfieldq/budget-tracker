@@ -6,6 +6,8 @@
 //   - system txns (opening, valuation) and system categories are off-limits
 //   - reconciled postings are locked (date, account, amount) and block deletion
 // All writes run inside one DB transaction, so a txn changes completely or not at all.
+// Writes touching an investment account also rebuild its valuation txns (D5).
+
 import type {
   Posting,
   PostingStatus,
@@ -20,6 +22,7 @@ import { isValidDate } from '../dates';
 import { NotFoundError, ValidationError } from '../errors';
 import { assertActivePeople } from './people';
 import { scopeAccountFilter } from './scope';
+import { recomputeValuations } from './snapshots';
 
 interface TxnRow {
   id: number;
@@ -286,6 +289,7 @@ export function createTxn(db: DB, input: TxnInput): Txn {
       )
       .run(householdId(db), v.date, v.payee, v.memo, input.createdByPersonId, now, now);
     insertPostings(db, Number(lastInsertRowid), v.postings);
+    recomputeValuations(db, v.postings.map((p) => p.accountId));
     return Number(lastInsertRowid);
   })();
   return getTxn(db, id);
@@ -310,6 +314,7 @@ export function updateTxn(db: DB, id: number, input: TxnInput): Txn {
     );
     db.prepare('DELETE FROM posting WHERE txn_id = ?').run(id);
     insertPostings(db, id, v.postings, reconciled);
+    recomputeValuations(db, [...existing.postings, ...v.postings].map((p) => p.accountId));
   })();
   return getTxn(db, id);
 }
@@ -323,6 +328,7 @@ export function deleteTxn(db: DB, id: number): void {
   db.transaction(() => {
     db.prepare('DELETE FROM posting WHERE txn_id = ?').run(id); // explicit; cascade would too
     db.prepare('DELETE FROM txn WHERE id = ?').run(id);
+    recomputeValuations(db, existing.postings.map((p) => p.accountId));
   })();
 }
 
@@ -362,6 +368,13 @@ export function listTxns(db: DB, f: TxnFilters = {}): { txns: Txn[]; total: numb
       `EXISTS (SELECT 1 FROM posting p WHERE p.txn_id = t.id AND p.status = ? ${accountClause})`,
     );
     params.push(f.status, ...(f.accountId !== undefined ? [f.accountId] : []));
+  }
+  if (f.unreconciled) {
+    const accountClause = f.accountId !== undefined ? 'AND p.account_id = ?' : '';
+    where.push(
+      `EXISTS (SELECT 1 FROM posting p WHERE p.txn_id = t.id AND p.status IN ('uncleared', 'cleared') ${accountClause})`,
+    );
+    if (f.accountId !== undefined) params.push(f.accountId);
   }
   if (f.from) {
     where.push('t.date >= ?');

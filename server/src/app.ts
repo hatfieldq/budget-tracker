@@ -5,6 +5,9 @@ import { registerAccountRoutes } from './routes/accounts';
 import { registerPeopleRoutes } from './routes/people';
 import { registerCategoryRoutes } from './routes/categories';
 import { registerTxnRoutes } from './routes/txns';
+import { registerReconcileRoutes } from './routes/reconcile';
+import { registerBudgetRoutes } from './routes/budgets';
+import { registerReportRoutes } from './routes/reports';
 
 /** Build the HTTP app around an open DB. Tests call this with an in-memory DB. */
 export function buildApp(db: DB) {
@@ -26,6 +29,9 @@ export function buildApp(db: DB) {
   registerCategoryRoutes(app, db);
   registerAccountRoutes(app, db);
   registerTxnRoutes(app, db);
+  registerReconcileRoutes(app, db);
+  registerBudgetRoutes(app, db);
+  registerReportRoutes(app, db);
   return app;
 }
 
