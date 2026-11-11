@@ -352,6 +352,18 @@ interface RowProps {
   onDelete: () => void;
 }
 
+/**
+ * Row tint by status: pending (uncleared) = red until checked off; cleared or
+ * reconciled = green. System entries (opening balances, valuations) aren't bank
+ * items, so they stay neutral.
+ */
+export function statusTint(status: '' | 'C' | 'R', isSystem: boolean): string {
+  if (isSystem) return '';
+  return status === ''
+    ? 'bg-red-50 border-l-4 border-l-red-400'
+    : 'bg-green-50 border-l-4 border-l-green-500';
+}
+
 function TxnRow(props: RowProps) {
   const { txn, lookups, accountId, reconciling, onToggleCleared, confirming } = props;
   const { onEdit, onDuplicate, onAskDelete, onCancelDelete, onDelete } = props;
@@ -385,14 +397,18 @@ function TxnRow(props: RowProps) {
   const statuses = accountPostings
     .filter((p) => accountId === undefined || p.accountId === accountId)
     .map((p) => p.status);
-  const status = statuses.every((s) => s === 'reconciled') ? 'R' : statuses.every((s) => s !== 'uncleared') ? 'C' : '';
+  const status: '' | 'C' | 'R' =
+    statuses.every((s) => s === 'reconciled') ? 'R' : statuses.every((s) => s !== 'uncleared') ? 'C' : '';
   // Cleared can be toggled on standard txns until every relevant line is reconciled.
   const toggleable = !isSystem && status !== 'R';
   const cleared = status !== '';
   const statusTitle = status === 'R' ? 'Reconciled (locked)' : cleared ? 'Cleared: click to un-clear' : 'Uncleared: click to mark cleared';
 
   return (
-    <tr className={`border-t border-stone-100 align-top ${isSystem ? 'text-stone-500' : ''} ${reconciling && cleared ? 'bg-green-50' : ''}`}>
+    <tr
+      className={`border-t border-stone-100 align-top ${isSystem ? 'text-stone-500' : ''} ${statusTint(status, isSystem)}`}
+      data-status={isSystem ? 'system' : status === '' ? 'pending' : 'confirmed'}
+    >
       {reconciling && (
         <td className="px-3 py-2">
           <input

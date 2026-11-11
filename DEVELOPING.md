@@ -225,7 +225,7 @@ so it either fully happens or doesn't.
 | `src/components/SnapshotPanel.tsx` | "Update value" for investment accounts: add/edit/delete snapshots, shows growth/loss per snapshot. |
 | `src/components/BalanceUpdatePanel.tsx` | "Update balance" for checking/savings: compare statement vs. app, book interest. |
 | `src/components/*.test.tsx` | Component tests; `ReconcileBar` and `BalanceUpdatePanel` mock `../api` with `vi.mock`. |
-| `src/pages/TransactionsPage.tsx` | Register: filters (URL params `accountId`, `categoryId`, `from`, `to`, `uncategorized`, `reconcile`), table rows (`TxnRow`), edit/duplicate/delete. |
+| `src/pages/TransactionsPage.tsx` | Register: rows red while pending, green once cleared/reconciled (`statusTint`); filters (URL params `accountId`, `categoryId`, `from`, `to`, `uncategorized`, `reconcile`), table rows (`TxnRow`), edit/duplicate/delete. |
 | `src/pages/TodayPage.tsx` | **Default page.** Quick entry + cards: month budget, review status, stale investment values, uncategorized. Test: `TodayPage.test.tsx`. |
 | `src/entryDate.ts` | `useEntryDate()`: the sticky entry date shared by Today and Transactions. |
 | `src/payees.ts` | `usePayees()`: payee hints for the entry form. |
